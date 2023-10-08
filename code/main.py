@@ -170,6 +170,7 @@ async def main() -> bool:
             # Background video with srt and duration
             background_mp4 = random_background()
             file_info = get_info(background_mp4, verbose=args.verbose)
+
             final_video = prepare_background(
                 background_mp4, filename_mp3=filename, filename_srt=srt_filename, duration=int(file_info.get('duration')), verbose=args.verbose)
 
@@ -249,8 +250,8 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
     if ss < 0:
         ss = 0
 
-    srt_filename = filename_srt.split('\\')[-1]
-    srt_path = "\\".join(filename_srt.split('\\')[:-1])
+    srt_filename = filename_srt.split('/')[-1]
+    srt_path = "/".join(filename_srt.split('/')[:-1])
 
     create_directory(os.getcwd(), "output")
     outfile = f"{os.getcwd()}{os.sep}output{os.sep}output_{ss}.mp4"
