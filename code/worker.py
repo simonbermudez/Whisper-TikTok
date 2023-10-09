@@ -92,12 +92,11 @@ def update_download_url(job_id, video_name):
 async def main() -> bool:
     job = pick_job()
 
-    pprint(job)
-
-    if job:      
+    if job:    
+        pprint(job)  
         args = {
             "model": "small",
-            "non_english": True if job["language"] != "en-US" else False,
+            "non_english": True if job["language"].split("-")[0] != "en" else False,
             "url": job["background_url"],
             "tts": job["tts"],
             "random_voice": False,
@@ -130,9 +129,6 @@ async def main() -> bool:
                 if not str(args["language"]).startswith('en'):
                     args["non_english"] = True
 
-        # Clear terminal
-        console.clear()
-
         logger.debug('Creating video')
         with console.status(msg.STATUS) as status:
             load_dotenv(find_dotenv())  # Optional
@@ -150,8 +146,9 @@ async def main() -> bool:
                     f"{msg.WARNING}PyTorch GPU not found, using CPU instead")
                 logger.warning('PyTorch GPU not found')
 
-            download_video(url=args["url"])
+            background_mp4 = download_video(url=args["url"])
 
+            console.log("background_mp4", background_mp4)
             # OpenAI-Whisper Model
             model = args["model"]
             if args["model"] != "large" and not args["non_english"]:
@@ -188,7 +185,6 @@ async def main() -> bool:
             logger.info('Transcription srt and ass file saved successfully!')
 
             # Background video with srt and duration
-            background_mp4 = random_background()
             file_info = get_info(background_mp4, verbose=args["verbose"])
 
             final_video = prepare_background(
@@ -209,11 +205,12 @@ def download_video(url: str, folder: str = 'background'):
         os.mkdir(folder)
     with KeepDir() as keep_dir:
         keep_dir.chdir(folder)
-        with subprocess.Popen(['yt-dlp', '--restrict-filenames', '--merge-output-format', 'mp4', url]) as process:
-            pass
+        filename = subprocess.getoutput(f'yt-dlp --print filename --restrict-filenames --merge-output-format mp4 {url}')
         console.log(
             f"{msg.OK}Background video downloaded successfully")
         logger.info('Background video downloaded successfully')
+
+        return filename
     return
 
 
@@ -287,8 +284,24 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
         rich_print(
             f"{filename_srt = }\n{mp4_absolute_path = }\n{filename_mp3 = }\n", style='bold green')   #
         # 'Alignment=9,BorderStyle=3,Outline=5,Shadow=3,Fontsize=15,MarginL=5,MarginV=25,FontName=Lexend Bold,ShadowX=-7.1,ShadowY=7.1,ShadowColour=&HFF000000,Blur=141'Outline=5
-    args = ["ffmpeg", "-ss", str(ss), "-t", str(audio_duration), "-i", mp4_absolute_path, "-i", filename_mp3, "-map", "0:v", "-map", "1:a", "-filter:v",
-            f"crop=ih/16*9:ih, scale=w=1080:h=1920:flags=bicubic, gblur=sigma=2, subtitles={srt_filename}:force_style=',Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'", "-c:v", "libx265", "-preset", "5", "-b:v", "5M", "-c:a", "aac", "-ac", "1", "-b:a", "96K", f"{outfile}", "-y", "-threads", f"{multiprocessing.cpu_count()-2}"]
+    args = [
+        "ffmpeg",
+        "-ss", str(ss),
+        "-t", str(audio_duration),
+        "-i", mp4_absolute_path,
+        "-i", filename_mp3,
+        "-map", "0:v",
+        "-map", "1:a",
+        "-vf", f"crop=ih/16*9:ih, scale=w=1080:h=1920:flags=bicubic, gblur=sigma=2, subtitles={srt_filename}:force_style=',Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'",
+        "-c:v", "libx264",
+        "-crf", "23",  # Adjust the CRF value as needed
+        "-c:a", "aac",
+        "-ac", "2",  # Use stereo audio
+        "-b:a", "192K",  # Adjust audio bitrate as needed
+        f"{outfile}",
+        "-y",
+        "-threads", f"{multiprocessing.cpu_count()-2}"
+    ]
 
     if verbose:
         rich_print('[i] FFMPEG Command:\n'+' '.join(args)+'\n', style='yellow')
@@ -430,6 +443,8 @@ async def tts(final_text: str, voice: str = "en-US-ChristopherNeural", random_vo
     return True
 
 if __name__ == "__main__":
+
+    print("Waiting for video to be added to the queue...")
 
     if platform.system() == 'Windows':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
