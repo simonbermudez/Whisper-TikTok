@@ -11,6 +11,11 @@ import logging
 from typing import Tuple
 import datetime
 import argparse
+import requests
+
+import time
+
+from pprint import pprint
 
 # PyTorch
 import torch
@@ -36,6 +41,7 @@ from utils import *
 import msg
 
 HOME = os.getcwd()
+VIDGEN_API = "https://vidgen.bermudez.ca"
 
 # Logging
 if not os.path.isdir('log'):
@@ -54,98 +60,112 @@ with KeepDir() as keep_dir:
     logger = logging.getLogger(__name__)
 
 
-###########################
-#        VIDEO.JSON       #
-###########################
-
-jsonData = json.load(open('video.json', encoding='utf-8'))
-
 
 #######################
 #         CODE        #
 #######################
 
+def update_job_status(job_id:str, status: str):
+    requests.put(VIDGEN_API + "/api/jobs/" + job_id, json={"status": status})
+
+def pick_job() -> str:
+    response = requests.get(VIDGEN_API + "/api/jobs/pick")
+
+    if response.status_code == 200:
+        job = response.json()
+
+        if "error" in job:
+            return None
+
+        job_id = job['_id']
+        update_job_status(job_id, "rendering")
+        return job
+    else:
+        return None
+
+def update_download_url(job_id, video_name):
+    download_url = f"https://cloud.bermudez.ca/s/AcJs2yejzmBbzWq/download?path=&files={video_name}"
+    
+    requests.put(VIDGEN_API + "/api/jobs/" + job_id, json={"finished_video": download_url})
+    update_job_status(job_id, "done")
 
 async def main() -> bool:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="small", help="Model to use",
-                        choices=["tiny", "base", "small", "medium", "large"], type=str)
-    parser.add_argument("--non_english", action='store_true',
-                        help="Don't use the english model.")
-    parser.add_argument("--url", metavar='U', default="https://www.youtube.com/watch?v=intRX7BRA90",
-                        help="Youtube URL to download as background video.", type=str)
-    parser.add_argument("--tts", default="en-US-ChristopherNeural",
-                        help="Voice to use for TTS", type=str)
-    parser.add_argument(
-        "--list-voices", help="Use `edge-tts --list-voices` to list all voices", action='help')
-    parser.add_argument("--random_voice", action='store_true',
-                        help="Random voice for TTS", default=False)
-    parser.add_argument("--gender", choices=["Male", "Female"],
-                        help="Gender of the random TTS voice", type=str)
-    parser.add_argument(
-        "--language", help="Language of the random TTS voice for example: en-US", type=str)
-    parser.add_argument("-v", "--verbose", action='store_true',
-                        help="Verbose")
-    args = parser.parse_args()
+    job = pick_job()
 
-    if args.random_voice:
-        args.tts = None
-        if not args.gender or not args.language:
-            console.log(
-                f"{msg.ERROR}When using --random_voice, please specify both --gender and --language arguments.")
-            sys.exit(1)
+    pprint(job)
 
-        else:
-            voices = await VoicesManager.create()
-            voices = voices.find(Gender=args.gender, Locale=args.language)
-            if len(voices) == 0:
-                # Locale not found
+    if job:      
+        args = {
+            "model": "small",
+            "non_english": True if job["language"] != "en-US" else False,
+            "url": job["background_url"],
+            "tts": job["tts"],
+            "random_voice": False,
+            "gender": "Male",
+            "language": job["language"],
+            "verbose": True,
+            "series": job["series"],
+            "text": job["text"],
+            "outro": job["outro"],
+            "part": job["part"],
+        }
+
+        if args["random_voice"]:
+            args["tts"] = None
+            if not args["gender"] or not args["language"]:
                 console.log(
-                    f"{msg.ERROR}Specified TTS language not found. Make sure you are using the correct format. For example: en-US")
+                    f"{msg.ERROR}When using --random_voice, please specify both --gender and --language arguments.")
                 sys.exit(1)
 
-            # Check if language is english
-            if not str(args.language).startswith('en'):
-                args.non_english = True
+            else:
+                voices = await VoicesManager.create()
+                voices = voices.find(Gender=args["gender"], Locale=args["language"])
+                if len(voices) == 0:
+                    # Locale not found
+                    console.log(
+                        f"{msg.ERROR}Specified TTS language not found. Make sure you are using the correct format. For example: en-US")
+                    sys.exit(1)
 
-    # Clear terminal
-    console.clear()
+                # Check if language is english
+                if not str(args["language"]).startswith('en'):
+                    args["non_english"] = True
 
-    logger.debug('Creating video')
-    with console.status(msg.STATUS) as status:
-        load_dotenv(find_dotenv())  # Optional
+        # Clear terminal
+        console.clear()
 
-        console.log(
-            f"{msg.OK}Finish loading environment variables")
-        logger.info('Finish loading environment variables')
+        logger.debug('Creating video')
+        with console.status(msg.STATUS) as status:
+            load_dotenv(find_dotenv())  # Optional
 
-        # Check if GPU is available for PyTorch (CUDA).
-        if torch.cuda.is_available():
-            console.log(f"{msg.OK}PyTorch GPU version found")
-            logger.info('PyTorch GPU version found')
-        else:
             console.log(
-                f"{msg.WARNING}PyTorch GPU not found, using CPU instead")
-            logger.warning('PyTorch GPU not found')
+                f"{msg.OK}Finish loading environment variables")
+            logger.info('Finish loading environment variables')
 
-        download_video(url=args.url)
+            # Check if GPU is available for PyTorch (CUDA).
+            if torch.cuda.is_available():
+                console.log(f"{msg.OK}PyTorch GPU version found")
+                logger.info('PyTorch GPU version found')
+            else:
+                console.log(
+                    f"{msg.WARNING}PyTorch GPU not found, using CPU instead")
+                logger.warning('PyTorch GPU not found')
 
-        # OpenAI-Whisper Model
-        model = args.model
-        if args.model != "large" and not args.non_english:
-            model = args.model + ".en"
-        whisper_model = whisper.load_model(model)
+            download_video(url=args["url"])
 
-        console.log(f"{msg.OK}OpenAI-Whisper model loaded")
-        logger.info('OpenAI-Whisper model loaded')
+            # OpenAI-Whisper Model
+            model = args["model"]
+            if args["model"] != "large" and not args["non_english"]:
+                model = args["model"] + ".en"
+            whisper_model = whisper.load_model(model)
 
-        # Text 2 Speech (Edge TTS API)
-        for video_id, video in enumerate(jsonData):
-            series = video['series']
-            part = video['part']
-            outro = video['outro']
-            path = video['path']
-            text = video['text']
+            console.log(f"{msg.OK}OpenAI-Whisper model loaded")
+            logger.info('OpenAI-Whisper model loaded')
+
+            series = args['series']
+            part = args['part']
+            outro = args['outro']
+            path = "/home/siber/Whisper-TikTok/code/output"
+            text = args['text']
 
             req_text, filename = create_full_text(
                 path, series, part, text, outro)
@@ -153,7 +173,7 @@ async def main() -> bool:
             console.log(f"{msg.OK}Text converted successfully")
             logger.info('Text converted successfully')
 
-            await tts(req_text, outfile=filename, voice=args.tts, random_voice=args.random_voice, args=args)
+            await tts(req_text, outfile=filename, voice=args["tts"], random_voice=args["random_voice"], args=args)
 
             console.log(
                 f"{msg.OK}Text2Speech mp3 file generated successfully!")
@@ -169,17 +189,19 @@ async def main() -> bool:
 
             # Background video with srt and duration
             background_mp4 = random_background()
-            file_info = get_info(background_mp4, verbose=args.verbose)
+            file_info = get_info(background_mp4, verbose=args["verbose"])
 
             final_video = prepare_background(
-                background_mp4, filename_mp3=filename, filename_srt=srt_filename, duration=int(file_info.get('duration')), verbose=args.verbose)
+                background_mp4, filename_mp3=filename, filename_srt=srt_filename, duration=int(file_info.get('duration')), verbose=args["verbose"])
 
             console.log(
                 f"{msg.OK}MP4 video saved successfully!\nPath: {final_video}")
             logger.info(f'MP4 video saved successfully!\nPath: {final_video}')
 
-    console.log(f'{msg.DONE}')
-    return True
+        update_download_url(job["_id"], final_video.split("/")[-1])    
+
+        console.log(f'{msg.DONE}')
+        return True
 
 
 def download_video(url: str, folder: str = 'background'):
@@ -254,7 +276,8 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
     srt_path = "/".join(filename_srt.split('/')[:-1])
 
     create_directory(os.getcwd(), "output")
-    outfile = f"{os.getcwd()}{os.sep}output{os.sep}{srt_filename}.mp4"
+    video_name = srt_filename.replace(".srt","")
+    outfile = f"{os.getcwd()}{os.sep}output{os.sep}{video_name}.mp4"
 
     with KeepDir() as keep_dir:
         keep_dir.chdir("background")
@@ -265,7 +288,7 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
             f"{filename_srt = }\n{mp4_absolute_path = }\n{filename_mp3 = }\n", style='bold green')   #
         # 'Alignment=9,BorderStyle=3,Outline=5,Shadow=3,Fontsize=15,MarginL=5,MarginV=25,FontName=Lexend Bold,ShadowX=-7.1,ShadowY=7.1,ShadowColour=&HFF000000,Blur=141'Outline=5
     args = ["ffmpeg", "-ss", str(ss), "-t", str(audio_duration), "-i", mp4_absolute_path, "-i", filename_mp3, "-map", "0:v", "-map", "1:a", "-filter:v",
-            f"crop=ih/16*9:ih, scale=w=1080:h=1920:flags=bicubic, gblur=sigma=2, subtitles={srt_filename}:force_style=',Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'", "-c:v", "libx265", "-preset", "5", "-b:v", "5M", "-c:a", "aac", "-ac", "1", "-b:a", "96K", f"{outfile}", "-y", "-threads", f"{multiprocessing.cpu_count()/2}"]
+            f"crop=ih/16*9:ih, scale=w=1080:h=1920:flags=bicubic, gblur=sigma=2, subtitles={srt_filename}:force_style=',Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'", "-c:v", "libx265", "-preset", "5", "-b:v", "5M", "-c:a", "aac", "-ac", "1", "-b:a", "96K", f"{outfile}", "-y", "-threads", f"{multiprocessing.cpu_count()-2}"]
 
     if verbose:
         rich_print('[i] FFMPEG Command:\n'+' '.join(args)+'\n', style='yellow')
@@ -399,7 +422,7 @@ async def tts(final_text: str, voice: str = "en-US-ChristopherNeural", random_vo
     """
     voices = await VoicesManager.create()
     if random_voice:
-        voices = voices.find(Gender=args.gender, Locale=args.language)
+        voices = voices.find(Gender=args["gender"], Locale=args["language"])
         voice = random.choice(voices)["Name"]
     communicate = edge_tts.Communicate(final_text, voice)
     if not stdout:
@@ -414,7 +437,9 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
 
     try:
-        loop.run_until_complete(main())
+        while True:
+            loop.run_until_complete(main())
+            time.sleep(10)
 
     except Exception as e:
         loop.close()

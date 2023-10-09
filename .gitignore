@@ -171,4 +171,5 @@ code/responses.txt
 code/test.ipynb
 code/accounts.txt
 
-results
+code/results/*
+code/output/*
