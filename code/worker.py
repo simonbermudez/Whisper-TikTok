@@ -41,7 +41,7 @@ from utils import *
 import msg
 
 HOME = os.getcwd()
-VIDGEN_API = "https://vidgen.bermudez.ca"
+VIDGEN_API = "https://vidgen-api.bermudez.ca"
 
 # Logging
 if not os.path.isdir('log'):
@@ -66,10 +66,10 @@ with KeepDir() as keep_dir:
 #######################
 
 def update_job_status(job_id:str, status: str):
-    requests.put(VIDGEN_API + "/api/jobs/" + job_id, json={"status": status})
+    requests.put(VIDGEN_API + "/jobs/" + job_id, json={"status": status})
 
 def pick_job() -> str:
-    response = requests.get(VIDGEN_API + "/api/jobs/pick")
+    response = requests.get(VIDGEN_API + "/jobs/pick")
 
     if response.status_code == 200:
         job = response.json()
@@ -86,7 +86,7 @@ def pick_job() -> str:
 def update_download_url(job_id, video_name):
     download_url = f"https://cloud.bermudez.ca/s/AcJs2yejzmBbzWq/download?path=&files={video_name}"
     
-    requests.put(VIDGEN_API + "/api/jobs/" + job_id, json={"finished_video": download_url})
+    requests.put(VIDGEN_API + "/jobs/" + job_id, json={"finished_video": download_url})
     update_job_status(job_id, "done")
 
 async def main() -> bool:
