@@ -93,111 +93,115 @@ async def main() -> bool:
     job = pick_job()
 
     if job:    
-        pprint(job)  
-        args = {
-            "model": "small",
-            "non_english": True if job["language"].split("-")[0] != "en" else False,
-            "url": job["background_url"],
-            "tts": job["tts"],
-            "random_voice": False,
-            "gender": "Male",
-            "language": job["language"],
-            "verbose": True,
-            "series": job["series"],
-            "text": job["text"],
-            "outro": job["outro"],
-            "part": job["part"],
-        }
+        try:
+            pprint(job)  
+            args = {
+                "model": "small",
+                "non_english": True if job["language"].split("-")[0] != "en" else False,
+                "url": job["background_url"],
+                "tts": job["tts"],
+                "random_voice": False,
+                "gender": "Male",
+                "language": job["language"],
+                "verbose": True,
+                "series": job["series"],
+                "text": job["text"],
+                "outro": job["outro"],
+                "part": job["part"],
+            }
 
-        if args["random_voice"]:
-            args["tts"] = None
-            if not args["gender"] or not args["language"]:
-                console.log(
-                    f"{msg.ERROR}When using --random_voice, please specify both --gender and --language arguments.")
-                sys.exit(1)
-
-            else:
-                voices = await VoicesManager.create()
-                voices = voices.find(Gender=args["gender"], Locale=args["language"])
-                if len(voices) == 0:
-                    # Locale not found
+            if args["random_voice"]:
+                args["tts"] = None
+                if not args["gender"] or not args["language"]:
                     console.log(
-                        f"{msg.ERROR}Specified TTS language not found. Make sure you are using the correct format. For example: en-US")
+                        f"{msg.ERROR}When using --random_voice, please specify both --gender and --language arguments.")
                     sys.exit(1)
 
-                # Check if language is english
-                if not str(args["language"]).startswith('en'):
-                    args["non_english"] = True
+                else:
+                    voices = await VoicesManager.create()
+                    voices = voices.find(Gender=args["gender"], Locale=args["language"])
+                    if len(voices) == 0:
+                        # Locale not found
+                        console.log(
+                            f"{msg.ERROR}Specified TTS language not found. Make sure you are using the correct format. For example: en-US")
+                        sys.exit(1)
 
-        logger.debug('Creating video')
-        with console.status(msg.STATUS) as status:
-            load_dotenv(find_dotenv())  # Optional
+                    # Check if language is english
+                    if not str(args["language"]).startswith('en'):
+                        args["non_english"] = True
 
-            console.log(
-                f"{msg.OK}Finish loading environment variables")
-            logger.info('Finish loading environment variables')
+            logger.debug('Creating video')
+            with console.status(msg.STATUS) as status:
+                load_dotenv(find_dotenv())  # Optional
 
-            # Check if GPU is available for PyTorch (CUDA).
-            if torch.cuda.is_available():
-                console.log(f"{msg.OK}PyTorch GPU version found")
-                logger.info('PyTorch GPU version found')
-            else:
                 console.log(
-                    f"{msg.WARNING}PyTorch GPU not found, using CPU instead")
-                logger.warning('PyTorch GPU not found')
+                    f"{msg.OK}Finish loading environment variables")
+                logger.info('Finish loading environment variables')
 
-            background_mp4 = download_video(url=args["url"])
+                # Check if GPU is available for PyTorch (CUDA).
+                if torch.cuda.is_available():
+                    console.log(f"{msg.OK}PyTorch GPU version found")
+                    logger.info('PyTorch GPU version found')
+                else:
+                    console.log(
+                        f"{msg.WARNING}PyTorch GPU not found, using CPU instead")
+                    logger.warning('PyTorch GPU not found')
 
-            console.log("background_mp4", background_mp4)
-            # OpenAI-Whisper Model
-            model = args["model"]
-            if args["model"] != "large" and not args["non_english"]:
-                model = args["model"] + ".en"
-            whisper_model = whisper.load_model(model)
+                background_mp4 = download_video(url=args["url"])
 
-            console.log(f"{msg.OK}OpenAI-Whisper model loaded")
-            logger.info('OpenAI-Whisper model loaded')
+                console.log("background_mp4", background_mp4)
+                # OpenAI-Whisper Model
+                model = args["model"]
+                if args["model"] != "large" and not args["non_english"]:
+                    model = args["model"] + ".en"
+                whisper_model = whisper.load_model(model)
 
-            series = args['series']
-            part = args['part']
-            outro = args['outro']
-            path = "/home/siber/Whisper-TikTok/code/output"
-            text = args['text']
+                console.log(f"{msg.OK}OpenAI-Whisper model loaded")
+                logger.info('OpenAI-Whisper model loaded')
 
-            req_text, filename = create_full_text(
-                path, series, part, text, outro)
+                series = args['series']
+                part = args['part']
+                outro = args['outro']
+                path = "/home/siber/Whisper-TikTok/code/output"
+                text = args['text']
 
-            console.log(f"{msg.OK}Text converted successfully")
-            logger.info('Text converted successfully')
+                req_text, filename = create_full_text(
+                    path, series, part, text, outro)
 
-            await tts(req_text, outfile=filename, voice=args["tts"], random_voice=args["random_voice"], args=args)
+                console.log(f"{msg.OK}Text converted successfully")
+                logger.info('Text converted successfully')
 
-            console.log(
-                f"{msg.OK}Text2Speech mp3 file generated successfully!")
-            logger.info('Text2Speech mp3 file generated successfully!')
+                await tts(req_text, outfile=filename, voice=args["tts"], random_voice=args["random_voice"], args=args)
 
-            # Whisper Model to create SRT file from Speech recording
-            srt_filename = srt_create(
-                whisper_model, path, series, part, text, filename)
+                console.log(
+                    f"{msg.OK}Text2Speech mp3 file generated successfully!")
+                logger.info('Text2Speech mp3 file generated successfully!')
 
-            console.log(
-                f"{msg.OK}Transcription srt and ass file saved successfully!")
-            logger.info('Transcription srt and ass file saved successfully!')
+                # Whisper Model to create SRT file from Speech recording
+                srt_filename = srt_create(
+                    whisper_model, path, series, part, text, filename)
 
-            # Background video with srt and duration
-            file_info = get_info(background_mp4, verbose=args["verbose"])
+                console.log(
+                    f"{msg.OK}Transcription srt and ass file saved successfully!")
+                logger.info('Transcription srt and ass file saved successfully!')
 
-            final_video = prepare_background(
-                background_mp4, filename_mp3=filename, filename_srt=srt_filename, duration=int(file_info.get('duration')), verbose=args["verbose"])
+                # Background video with srt and duration
+                file_info = get_info(background_mp4, verbose=args["verbose"])
 
-            console.log(
-                f"{msg.OK}MP4 video saved successfully!\nPath: {final_video}")
-            logger.info(f'MP4 video saved successfully!\nPath: {final_video}')
+                final_video = prepare_background(
+                    background_mp4, filename_mp3=filename, filename_srt=srt_filename, duration=int(file_info.get('duration')), verbose=args["verbose"])
 
-        update_download_url(job["_id"], final_video.split("/")[-1])    
+                console.log(
+                    f"{msg.OK}MP4 video saved successfully!\nPath: {final_video}")
+                logger.info(f'MP4 video saved successfully!\nPath: {final_video}')
 
-        console.log(f'{msg.DONE}')
-        return True
+            update_download_url(job["_id"], final_video.split("/")[-1])    
+
+            console.log(f'{msg.DONE}')
+            return True
+        except:
+            update_job_status(job["_id"], "error")
+
 
 
 def download_video(url: str, folder: str = 'background'):
@@ -205,6 +209,8 @@ def download_video(url: str, folder: str = 'background'):
         os.mkdir(folder)
     with KeepDir() as keep_dir:
         keep_dir.chdir(folder)
+        with subprocess.Popen(['yt-dlp', '--restrict-filenames', '--merge-output-format', 'mp4', url]) as process:
+            pass
         filename = subprocess.getoutput(f'yt-dlp --print filename --restrict-filenames --merge-output-format mp4 {url}')
         console.log(
             f"{msg.OK}Background video downloaded successfully")
@@ -300,7 +306,8 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
         "-b:a", "192K",  # Adjust audio bitrate as needed
         f"{outfile}",
         "-y",
-        "-threads", f"{multiprocessing.cpu_count()-2}"
+        "-threads", f"{multiprocessing.cpu_count()-2}",
+        "-hwaccel", "cuda"
     ]
 
     if verbose:
@@ -411,7 +418,7 @@ def create_full_text(path: str = '', series: str = '', part: int = 1, text: str 
         Tuple[str, str]: A tuple containing the resulting text and the filename of the text file.
 
     """
-    req_text = f"{series} Part {part}.\n{text}\n{outro}"
+    req_text = f"{series}.\n{text}\n{outro}"
     series = series.replace(' ', '_')
     filename = f"{path}{os.sep}{series}{os.sep}{series}_{part}.mp3"
     create_directory(path, directory=series)
@@ -453,7 +460,10 @@ if __name__ == "__main__":
 
     try:
         while True:
-            loop.run_until_complete(main())
+            try:
+                loop.run_until_complete(main())
+            except Exception as e:
+                console.log(str(e))
             time.sleep(10)
 
     except Exception as e:
