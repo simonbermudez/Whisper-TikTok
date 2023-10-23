@@ -41,7 +41,10 @@ from utils import *
 import msg
 
 HOME = os.getcwd()
-VIDGEN_API = "https://vidgen-api.bermudez.ca"
+VIDGEN_API = os.getenv('BASE_URL') + "/api"
+
+if not VIDGEN_API:
+    raise Exception("BASE_URL environment variable not set, please set it to the VIDGEN api")
 
 # Logging
 if not os.path.isdir('log'):
@@ -84,8 +87,9 @@ def pick_job() -> str:
         return None
 
 def update_download_url(job_id, video_name):
-    download_url = f"https://cloud.bermudez.ca/s/AcJs2yejzmBbzWq/download?path=&files={video_name}"
+    download_url = '/renders/' + video_name
     
+    console.log("Updating Download URL", download_url)
     requests.put(VIDGEN_API + "/jobs/" + job_id, json={"finished_video": download_url})
     update_job_status(job_id, "done")
 
@@ -162,7 +166,7 @@ async def main() -> bool:
                 series = args['series']
                 part = args['part']
                 outro = args['outro']
-                path = "/home/siber/Whisper-TikTok/code/output"
+                path = "/workspace/output"
                 text = args['text']
 
                 req_text, filename = create_full_text(
@@ -204,7 +208,7 @@ async def main() -> bool:
 
 
 
-def download_video(url: str, folder: str = 'background'):
+def download_video(url: str, folder: str = 'backgrounds'):
     if not os.path.isdir(folder):
         os.mkdir(folder)
     with KeepDir() as keep_dir:
@@ -220,7 +224,7 @@ def download_video(url: str, folder: str = 'background'):
     return
 
 
-def random_background(folder_path: str = "background"):
+def random_background(folder_path: str = "backgrounds"):
     with KeepDir() as keep_dir:
         keep_dir.chdir(f"{HOME}{os.sep}{folder_path}")
         files = os.listdir(".")
@@ -231,7 +235,7 @@ def random_background(folder_path: str = "background"):
 def get_info(filename: str, verbose: bool = False):
     try:
         with KeepDir() as keep_dir:
-            keep_dir.chdir("background")
+            keep_dir.chdir("backgrounds")
             probe = ffmpeg.probe(filename)
             video_stream = next(
                 (stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
@@ -283,7 +287,7 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
     outfile = f"{os.getcwd()}{os.sep}output{os.sep}{video_name}.mp4"
 
     with KeepDir() as keep_dir:
-        keep_dir.chdir("background")
+        keep_dir.chdir("backgrounds")
         mp4_absolute_path = os.path.abspath(background_mp4)
 
     if verbose:
@@ -299,19 +303,23 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
         "-map", "0:v",
         "-map", "1:a",
         "-vf", f"crop=ih/16*9:ih, scale=w=1080:h=1920:flags=bicubic, gblur=sigma=2, subtitles={srt_filename}:force_style=',Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'",
-        "-c:v", "libx264",
-        "-crf", "23",  # Adjust the CRF value as needed
+        "-c:v", "hevc_nvenc",
+        "-profile:v", "main",  # Use the appropriate HEVC profile
+        "-preset", "fast",  # Adjust the preset as needed
+        "-tune", "hq",  # Use the appropriate tuning setting
+        "-b:v", "4M",  # Adjust the video bitrate as needed
         "-c:a", "aac",
         "-ac", "2",  # Use stereo audio
         "-b:a", "192K",  # Adjust audio bitrate as needed
         f"{outfile}",
         "-y",
-        "-threads", f"{multiprocessing.cpu_count()-2}",
-        "-hwaccel", "cuda"
+        "-threads", f"{multiprocessing.cpu_count()-2}"
     ]
+
 
     if verbose:
         rich_print('[i] FFMPEG Command:\n'+' '.join(args)+'\n', style='yellow')
+        print('[i] FFMPEG Command:\n'+' '.join(args)+'\n')
 
     with KeepDir() as keep_dir:
         keep_dir.chdir(srt_path)
