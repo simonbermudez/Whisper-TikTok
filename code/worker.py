@@ -302,18 +302,18 @@ def prepare_background(background_mp4, filename_mp3, filename_srt, duration: int
         "-i", filename_mp3,
         "-map", "0:v",
         "-map", "1:a",
-        "-vf", f"crop=ih/16*9:ih, scale=w=1080:h=1920:flags=bicubic, gblur=sigma=2, subtitles={srt_filename}:force_style=',Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'",
-        "-c:v", "hevc_nvenc",
-        "-profile:v", "main",  # Use the appropriate HEVC profile
-        "-preset", "fast",  # Adjust the preset as needed
-        "-tune", "hq",  # Use the appropriate tuning setting
-        "-b:v", "4M",  # Adjust the video bitrate as needed
+        "-vf", (
+            "crop=ih/16*9:ih,scale=1080:1920:flags=lanczos,gblur=sigma=2,"
+            f"subtitles={srt_filename}:force_style='Alignment=8,BorderStyle=7,Outline=3,Shadow=5,Blur=15,Fontsize=15,MarginL=45,MarginR=55,FontName=Lexend Bold'"
+        ),
+        "-c:v", "libx264",
+        "-crf", "23",  # Adjust the CRF value as needed
         "-c:a", "aac",
         "-ac", "2",  # Use stereo audio
         "-b:a", "192K",  # Adjust audio bitrate as needed
         f"{outfile}",
         "-y",
-        "-threads", f"{multiprocessing.cpu_count()-2}"
+        "-threads", f"{multiprocessing.cpu_count()}"
     ]
 
 
